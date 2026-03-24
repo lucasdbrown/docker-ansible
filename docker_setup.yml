@@ -5,6 +5,9 @@
   gather_facts: true
 
   vars:
+    docker_debian_repo_map:
+      Kali: bookworm
+
     docker_packages_debian:
       - docker-ce
       - docker-ce-cli
