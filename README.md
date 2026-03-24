@@ -2,6 +2,7 @@
 Simple Ansible project to install Docker Engine and Docker Compose plugin on:
 - Debian
 - Kali
+- Ubuntu
 - Red Hat family
 
 Install Verification:
@@ -57,8 +58,11 @@ If your remote user needs sudo:
 
 You need Ansible installed on the control machine.
 
-Example:
-
-```bash
+Install with pip:
+```sh
 python3 -m pip install ansible
+```
+
+```sh
+sudo apt install ansible
 ```

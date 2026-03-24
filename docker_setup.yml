@@ -27,14 +27,14 @@
       ansible.builtin.fail:
         msg: >-
           Unsupported distribution {{ ansible_distribution }} (family: {{ ansible_os_family }}).
-          This playbook supports Debian, and RedHat-family systems.
+          This playbook supports Debian, Kali, Ubuntu, and RedHat-family systems.
       when:
-        - ansible_distribution not in ['Debian', 'Kali']
+        - ansible_distribution not in ['Debian', 'Kali', 'Ubuntu']
         - ansible_os_family != 'RedHat'
 
     - name: Set Docker repo distro for Debian family
       ansible.builtin.set_fact:
-        docker_repo_distro: debian
+        docker_repo_distro: "{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }}"
         docker_repo_release: "{{ docker_debian_repo_map.get(ansible_distribution, ansible_distribution_release) }}"
       when: ansible_os_family == 'Debian'
 
@@ -45,7 +45,7 @@
       when: ansible_os_family == 'RedHat'
 
   tasks:
-    - name: Install Docker on Debian and Kali
+    - name: Install Docker on Debian family (apt)
       when: ansible_os_family == 'Debian'
       block:
         - name: Install apt prerequisites
