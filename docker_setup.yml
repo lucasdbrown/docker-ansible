@@ -105,123 +105,124 @@
             name: "{{ docker_packages_redhat }}"
             state: present
 
-    - name: Ensure docker service is enabled and running
-      ansible.builtin.systemd:
-        name: docker
-        enabled: true
-        state: started
-        daemon_reload: true
+    - name: Verify Docker, run validation tests, and clean up
+      block:
+        - name: Ensure docker service is enabled and running
+          ansible.builtin.systemd:
+            name: docker
+            enabled: true
+            state: started
+            daemon_reload: true
 
-    - name: Wait for Docker socket
-      ansible.builtin.wait_for:
-        path: /var/run/docker.sock
-        state: present
-        timeout: 30
+        - name: Wait for Docker socket
+          ansible.builtin.wait_for:
+            path: /var/run/docker.sock
+            state: present
+            timeout: 30
 
-    - name: Check docker version
-      ansible.builtin.command: docker version
-      register: docker_version_check
-      changed_when: false
+        - name: Check docker version
+          ansible.builtin.command: docker version
+          register: docker_version_check
+          changed_when: false
 
-    - name: Check docker compose version
-      ansible.builtin.command: docker compose version
-      register: docker_compose_version_check
-      changed_when: false
+        - name: Check docker compose version
+          ansible.builtin.command: docker compose version
+          register: docker_compose_version_check
+          changed_when: false
 
-    - name: Run hello-world test container
-      ansible.builtin.command: docker run --rm hello-world
-      register: docker_hello_test
-      changed_when: false
+        - name: Run hello-world test container
+          ansible.builtin.command: docker run --rm hello-world
+          register: docker_hello_test
+          changed_when: false
 
-    - name: Create temporary directory for compose validation
-      ansible.builtin.tempfile:
-        state: directory
-        suffix: docker-compose-test
-      register: compose_test_dir
+        - name: Create temporary directory for compose validation
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: docker-compose-test
+          register: compose_test_dir
 
-    - name: Write temporary compose file
-      ansible.builtin.copy:
-        dest: "{{ compose_test_dir.path }}/compose.yml"
-        mode: '0644'
-        content: |
-          services:
-            test:
-              image: alpine:latest
-              command: ["sh", "-c", "echo compose-ok"]
+        - name: Write temporary compose file
+          ansible.builtin.copy:
+            dest: "{{ compose_test_dir.path }}/compose.yml"
+            mode: '0644'
+            content: |
+              services:
+                test:
+                  image: alpine:latest
+                  command: ["sh", "-c", "echo compose-ok"]
 
-    - name: Run docker compose validation
-      ansible.builtin.command:
-        cmd: docker compose -f {{ compose_test_dir.path }}/compose.yml up --abort-on-container-exit --quiet-pull
-      register: compose_up_result
-      changed_when: false
-      failed_when:
-        - compose_up_result.rc != 0
-        - "'compose-ok' not in compose_up_result.stdout"
-        - "'compose-ok' not in compose_up_result.stderr"
+        - name: Run docker compose validation
+          ansible.builtin.command:
+            cmd: docker compose -f {{ compose_test_dir.path }}/compose.yml up --abort-on-container-exit --quiet-pull
+          register: compose_up_result
+          changed_when: false
+          failed_when: >-
+            compose_up_result.rc != 0 or
+            ('compose-ok' not in compose_up_result.stdout and 'compose-ok' not in compose_up_result.stderr)
 
-  rescue:
-    - name: Gather docker service status
-      ansible.builtin.command: systemctl status docker --no-pager
-      register: docker_service_status
-      changed_when: false
-      failed_when: false
+      rescue:
+        - name: Gather docker service status
+          ansible.builtin.command: systemctl status docker --no-pager
+          register: docker_service_status
+          changed_when: false
+          failed_when: false
 
-    - name: Gather docker journal logs
-      ansible.builtin.command: journalctl -u docker --no-pager -n 100
-      register: docker_journal_logs
-      changed_when: false
-      failed_when: false
+        - name: Gather docker journal logs
+          ansible.builtin.command: journalctl -u docker --no-pager -n 100
+          register: docker_journal_logs
+          changed_when: false
+          failed_when: false
 
-    - name: Print troubleshooting output
-      ansible.builtin.debug:
-        msg:
-          - "Docker version: {{ docker_version_check.stdout | default('unavailable') }}"
-          - "Docker Compose version: {{ docker_compose_version_check.stdout | default('unavailable') }}"
-          - "systemctl status docker: {{ docker_service_status.stdout | default('unavailable') }}"
-          - "journalctl -u docker: {{ docker_journal_logs.stdout | default('unavailable') }}"
+        - name: Print troubleshooting output
+          ansible.builtin.debug:
+            msg:
+              - "Docker version: {{ docker_version_check.stdout | default('unavailable') }}"
+              - "Docker Compose version: {{ docker_compose_version_check.stdout | default('unavailable') }}"
+              - "systemctl status docker: {{ docker_service_status.stdout | default('unavailable') }}"
+              - "journalctl -u docker: {{ docker_journal_logs.stdout | default('unavailable') }}"
 
-    - name: Fail clearly after troubleshooting collection
-      ansible.builtin.fail:
-        msg: >-
-          Docker installation or validation failed. Review the play output above for version checks,
-          service status, and recent docker logs.
+        - name: Fail clearly after troubleshooting collection
+          ansible.builtin.fail:
+            msg: >-
+              Docker installation or validation failed. Review the play output above for version checks,
+              service status, and recent docker logs.
 
-  always:
-    - name: Tear down compose validation stack
-      ansible.builtin.command:
-        cmd: docker compose -f {{ compose_test_dir.path }}/compose.yml down --volumes --remove-orphans
-      changed_when: false
-      failed_when: false
-      when: compose_test_dir is defined and compose_test_dir.path is defined
+      always:
+        - name: Tear down compose validation stack
+          ansible.builtin.command:
+            cmd: docker compose -f {{ compose_test_dir.path }}/compose.yml down --volumes --remove-orphans
+          changed_when: false
+          failed_when: false
+          when: compose_test_dir is defined and compose_test_dir.path is defined
 
-    - name: Remove temporary compose validation directory
-      ansible.builtin.file:
-        path: "{{ compose_test_dir.path }}"
-        state: absent
-      when: compose_test_dir is defined and compose_test_dir.path is defined
+        - name: Remove temporary compose validation directory
+          ansible.builtin.file:
+            path: "{{ compose_test_dir.path }}"
+            state: absent
+          when: compose_test_dir is defined and compose_test_dir.path is defined
 
-    - name: Remove hello-world image if present
-      ansible.builtin.command: docker image rm hello-world
-      changed_when: false
-      failed_when: false
+        - name: Remove hello-world image if present
+          ansible.builtin.command: docker image rm hello-world
+          changed_when: false
+          failed_when: false
 
-    - name: Remove alpine image if present
-      ansible.builtin.command: docker image rm alpine:latest
-      changed_when: false
-      failed_when: false
+        - name: Remove alpine image if present
+          ansible.builtin.command: docker image rm alpine:latest
+          changed_when: false
+          failed_when: false
 
-    - name: Show success summary
-      ansible.builtin.debug:
-        msg:
-          - "Docker install complete."
-          - "{{ docker_version_check.stdout | default('docker version unavailable') }}"
-          - "{{ docker_compose_version_check.stdout | default('docker compose version unavailable') }}"
-          - "hello-world container test passed."
-          - "docker compose test passed."
-      when:
-        - docker_version_check is defined
-        - docker_compose_version_check is defined
-        - docker_hello_test is defined
-        - compose_up_result is defined
-        - docker_hello_test.rc == 0
-        - compose_up_result.rc == 0
+        - name: Show success summary
+          ansible.builtin.debug:
+            msg:
+              - "Docker install complete."
+              - "{{ docker_version_check.stdout | default('docker version unavailable') }}"
+              - "{{ docker_compose_version_check.stdout | default('docker compose version unavailable') }}"
+              - "hello-world container test passed."
+              - "docker compose test passed."
+          when:
+            - docker_version_check is defined
+            - docker_compose_version_check is defined
+            - docker_hello_test is defined
+            - compose_up_result is defined
+            - docker_hello_test.rc == 0
+            - compose_up_result.rc == 0
